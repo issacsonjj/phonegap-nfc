@@ -3,6 +3,7 @@ package com.chariotsolutions.nfc.plugin;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.Tag;
+import android.nfc.tech.IsoDep;
 import android.nfc.tech.Ndef;
 import android.util.Log;
 import org.json.JSONArray;
@@ -12,6 +13,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.io.ByteArrayOutputStream;
 
 public class Util {
 
@@ -49,15 +51,105 @@ public class Util {
         return json;
     }
 
+    public static byte charToByte(char c) {
+		  return (byte) "0123456789ABCDEF".indexOf(c);
+	  }
+
+    public static String bytesToHexString(byte[] bytes) {
+		  String result = "";
+
+		  for (int i = 0;i < bytes.length;i++) {
+			  String tmp = String.format("%02X", ((int)bytes[i]) & 0xff);
+			  result += tmp;
+		  }
+
+		  return result;
+	  }
+
+    public static byte[] hexStringToBytes(String hexString) {
+      if (hexString == null || hexString.equals("")) {
+          return null;
+      }
+      hexString = hexString.toUpperCase();
+      int length = hexString.length() / 2;
+      char[] hexChars = hexString.toCharArray();
+      byte[] d = new byte[length];
+      for (int i = 0; i < length; i++) {
+          int pos = i * 2;
+          d[i] = (byte) (charToByte(hexChars[pos]) << 4 | charToByte(hexChars[pos + 1]));
+
+      }
+      return d;
+    }
+
+    static byte[] intToBytes(int number, int length) {
+      byte[] result = new byte[length];
+
+      for (int i = 0;i < length;i++) {
+        byte b = (byte) ((number >> i*8) & 0xff);
+        result[length-i-1] = b;
+      }
+
+      return result;
+    }
+
+    static byte[] joinBytes(byte[] b1, byte[] b2) {
+      ByteArrayOutputStream bi = new ByteArrayOutputStream();
+
+      try {
+        bi.write(b1);
+        bi.write(b2);
+      } catch(Exception e) {
+
+      }
+      return bi.toByteArray();
+    }
+
     static JSONObject tagToJSON(Tag tag) {
         JSONObject json = new JSONObject();
+        IsoDep isoDep = null;
 
         if (tag != null) {
             try {
                 json.put("id", byteArrayToJSON(tag.getId()));
                 json.put("techTypes", new JSONArray(Arrays.asList(tag.getTechList())));
-            } catch (JSONException e) {
-                Log.e(TAG, "Failed to convert tag into json: " + tag.toString(), e);
+
+                //read tag data
+
+                String cmd1 = "00A404000A42554C414F5A48454E47";
+              	String cmd2 = "00b0820000";
+                isoDep = IsoDep.get(tag);
+          			isoDep.connect();
+                byte[] result1 = isoDep.transceive(hexStringToBytes(cmd1));
+                String resultStr = bytesToHexString(result1);
+
+                if (result1 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
+          				byte[] result2 = isoDep.transceive(hexStringToBytes("00a40000020003"));
+          				resultStr = bytesToHexString(result2);
+          				if (result2 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
+          					String tmpCmd = "00b0";
+          					int length = 100;
+                    ByteArrayOutputStream bi = new ByteArrayOutputStream();
+          					for (int i = 0; i < 3; i++) {
+          						int index = length * i;
+          						byte[] bTmpCmd = hexStringToBytes(tmpCmd);
+          						byte[] join1 = joinBytes(bTmpCmd, intToBytes(index, 2));
+          						byte[] join2 = joinBytes(join1, intToBytes(length, 1));
+          						byte[] result3 = isoDep.transceive(join2);
+          						String resultStr1 = bytesToHexString(result3);
+          						if ("9000".equals(resultStr1.substring(resultStr1.length() - 4))) {
+          							bi.write(result3, 4, result3.length-4);
+                        //showContent.append(resultStr1.substring(0,resultStr1.length() - 4));
+          						}
+          					}
+
+                    json.put("data", byteArrayToJSON(bi.toByteArray()));
+                  }
+
+          			}
+
+            } catch (Exception e) {
+                Log.e(TAG, "Exception: " + e);
             }
         }
         return json;
