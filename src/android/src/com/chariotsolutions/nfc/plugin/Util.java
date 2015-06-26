@@ -138,7 +138,7 @@ public class Util {
           						byte[] result3 = isoDep.transceive(join2);
           						String resultStr1 = bytesToHexString(result3);
           						if ("9000".equals(resultStr1.substring(resultStr1.length() - 4))) {
-          							bi.write(result3, 4, result3.length-4);
+          							bi.write(result3, 0, result3.length-4);
                         //showContent.append(resultStr1.substring(0,resultStr1.length() - 4));
           						}
           					}
