@@ -3,6 +3,7 @@ package com.chariotsolutions.nfc.plugin;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.Tag;
+import android.nfc.tech.NfcA;
 import android.nfc.tech.IsoDep;
 import android.nfc.tech.Ndef;
 import android.util.Log;
@@ -14,6 +15,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 
 public class Util {
 
@@ -105,48 +108,145 @@ public class Util {
       return bi.toByteArray();
     }
 
+    static byte[] readIsoDep(IsoDep isoDep) throws IOException {
+      byte[] result = null;
+
+      String cmd1 = "00A404000A42554C414F5A48454E47";
+      String cmd2 = "00b0820000";
+
+      if (isoDep == null) {
+        return result;
+      }
+
+      try {
+        if (!isoDep.isConnected()) {
+          isoDep.connect();
+        }
+
+        byte[] result1 = isoDep.transceive(hexStringToBytes(cmd1));
+        String resultStr = bytesToHexString(result1);
+
+        if (result1 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
+          byte[] result2 = isoDep.transceive(hexStringToBytes("00a40000020003"));
+          resultStr = bytesToHexString(result2);
+          if (result2 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
+            String tmpCmd = "00b0";
+            int length = 100;
+            ByteArrayOutputStream bi = new ByteArrayOutputStream();
+            for (int i = 0; i < 3; i++) {
+              int index = length * i;
+              byte[] bTmpCmd = hexStringToBytes(tmpCmd);
+              byte[] join1 = joinBytes(bTmpCmd, intToBytes(index, 2));
+              byte[] join2 = joinBytes(join1, intToBytes(length, 1));
+              byte[] result3 = isoDep.transceive(join2);
+              String resultStr1 = bytesToHexString(result3);
+              if ("9000".equals(resultStr1.substring(resultStr1.length() - 4))) {
+                bi.write(result3, 0, result3.length-2);
+              }
+            }
+
+            result = bi.toByteArray();
+            //json.put("data", byteArrayToIntJSON(bi.toByteArray()));
+            /*
+            try {
+              json.put("data", new String(bi.toByteArray(), "UTF-8"));
+            } catch(UnsupportedEncodingException e) {
+
+            }
+            */
+          }
+        }
+      } catch (IOException e) {
+        throw e;
+      } finally {
+        try {
+          isoDep.close();
+        } catch (IOException e) {
+          //nothing
+        }
+      }
+
+      return result;
+    }
+
+    static byte[] readNfcA(NfcA nfca) throws IOException {
+      byte[] result = null;
+
+      if (nfca == null) {
+        return result;
+      }
+
+      try {
+        byte[] cmdBytes = new byte[]{0x30, (byte)0};
+        if (!nfca.isConnected()) {
+          nfca.connect();
+        }
+
+        byte[] resultBytes = nfca.transceive(cmdBytes);
+        if (resultBytes.length == 16) {
+          int memSize = (resultBytes[14]&0xff) * 8 + 16;
+          int maxBlock = memSize / 4 - 1;
+          byte[] bytesRead = new byte[memSize];
+          int readIndex = 0;
+          System.arraycopy(resultBytes, 0, bytesRead, readIndex, 16);
+          readIndex += 16;
+
+          for (int i = 4;i <= maxBlock;i += 4) {
+            if (maxBlock -i <= 4) {
+              cmdBytes[1] = (byte)(maxBlock-3);
+              resultBytes = nfca.transceive(cmdBytes);
+              System.arraycopy(resultBytes, 0, bytesRead, bytesRead.length-16, 16);
+              break;
+            } else {
+              cmdBytes[1] = (byte)i;
+              resultBytes = nfca.transceive(cmdBytes);
+              System.arraycopy(resultBytes, 0, bytesRead, readIndex, 16);
+              readIndex += 16;
+            }
+          }
+
+          result = bytesRead;
+        }
+      } catch (IOException e) {
+        throw e;
+      } finally {
+        try {
+          nfca.close();
+        } catch (IOException e) {
+          //do nothing
+        }
+      }
+
+      return result;
+    }
+
+    //static byte[] writeNfcABlock(NfcA nfca, byte[] )
+
     static JSONObject tagToJSON(Tag tag) {
         JSONObject json = new JSONObject();
         IsoDep isoDep = null;
+        NfcA nfca = null;
 
         if (tag != null) {
             try {
-                json.put("id", byteArrayToJSON(tag.getId()));
+                json.put("id", byteArrayToIntJSON(tag.getId()));
                 json.put("techTypes", new JSONArray(Arrays.asList(tag.getTechList())));
 
-                //read tag data
-
-                String cmd1 = "00A404000A42554C414F5A48454E47";
-              	String cmd2 = "00b0820000";
                 isoDep = IsoDep.get(tag);
-          			isoDep.connect();
-                byte[] result1 = isoDep.transceive(hexStringToBytes(cmd1));
-                String resultStr = bytesToHexString(result1);
-
-                if (result1 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
-          				byte[] result2 = isoDep.transceive(hexStringToBytes("00a40000020003"));
-          				resultStr = bytesToHexString(result2);
-          				if (result2 != null && "9000".equals(resultStr.substring(resultStr.length() - 4))) {
-          					String tmpCmd = "00b0";
-          					int length = 100;
-                    ByteArrayOutputStream bi = new ByteArrayOutputStream();
-          					for (int i = 0; i < 3; i++) {
-          						int index = length * i;
-          						byte[] bTmpCmd = hexStringToBytes(tmpCmd);
-          						byte[] join1 = joinBytes(bTmpCmd, intToBytes(index, 2));
-          						byte[] join2 = joinBytes(join1, intToBytes(length, 1));
-          						byte[] result3 = isoDep.transceive(join2);
-          						String resultStr1 = bytesToHexString(result3);
-          						if ("9000".equals(resultStr1.substring(resultStr1.length() - 4))) {
-          							bi.write(result3, 0, result3.length-2);
-                        //showContent.append(resultStr1.substring(0,resultStr1.length() - 4));
-          						}
-          					}
-
-                    json.put("data", byteArrayToJSON(bi.toByteArray()));
+                if (isoDep != null) {
+                  byte[] isoDepBytes = readIsoDep(isoDep);
+                  if (isoDepBytes != null) {
+                    json.put("data", byteArrayToIntJSON(isoDepBytes));
                   }
-
-          			}
+                } else {
+                  nfca = NfcA.get(tag);
+                  if (nfca != null) {
+                    byte[] nfcaBytes = readNfcA(nfca);
+                    if (nfcaBytes != null) {
+                      json.put("data", byteArrayToIntJSON(nfcaBytes));
+                    }
+                  }
+                }
 
             } catch (Exception e) {
                 Log.e(TAG, "Exception: " + e);
@@ -191,6 +291,23 @@ public class Util {
             json.put(aByte);
         }
         return json;
+    }
+
+    static JSONArray byteArrayToIntJSON(byte[] bytes) {
+      JSONArray json = new JSONArray();
+      for (byte aByte : bytes) {
+        Integer value = Integer.valueOf( ((int)aByte) & 0xff);
+        json.put(value);
+      }
+      return json;
+    }
+
+    static JSONArray intArrayToJSON(int[] data) {
+      JSONArray json = new JSONArray();
+      for (int i : data) {
+        json.put(i);
+      }
+      return json;
     }
 
     static byte[] jsonToByteArray(JSONArray json) throws JSONException {
